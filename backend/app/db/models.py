@@ -26,5 +26,5 @@ class DocumentChunk(Base):
     chunk_type = Column(String, default="child")
     parent_id = Column(Integer, nullable=True)
     text = Column(Text, nullable=False)
-    embedding = Column(Vector(384), nullable=True)
+    embedding = Column(Vector(768), nullable=True)  # Gemini embedding-001 output size
     created_at = Column(DateTime, server_default=func.now())

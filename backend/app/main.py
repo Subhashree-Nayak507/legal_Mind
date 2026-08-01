@@ -61,13 +61,12 @@ async def lifespan(app: FastAPI):
     # instead of silently hanging the first user's query.
     import asyncio
     try:
-        await asyncio.wait_for(asyncio.to_thread(load_reranker_model), timeout=120)
-        logger.info("Reranker model ready")
+        await asyncio.wait_for(asyncio.to_thread(load_reranker_model), timeout=15)
+        logger.info("Reranker (Groq) ready")
     except asyncio.TimeoutError:
         logger.error(
-            "Reranker model failed to load within 120s — check network access "
-            "to huggingface.co from inside the container. /query will fail "
-            "until this is resolved."
+            "Reranker startup check timed out after 15s — check GROQ_API_KEY "
+            "and network access. /query will fail until this is resolved."
         )
 
     # Note: LLM clients (Groq, Gemini) are singletons in llm.py,

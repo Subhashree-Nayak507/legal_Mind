@@ -33,8 +33,9 @@ class Settings(BaseSettings):
     jwt_expire_minutes: int = 1440   # 24 hours
 
     # ── Embedding ──────────────────────────────────────────────────────────
-    embed_model: str = "all-MiniLM-L6-v2"
-    embedding_dim: int = 384
+   # ── Embedding ──────────────────────────────────────────────────────────
+    embed_model: str = "models/embedding-001"  # Gemini hosted embedding API
+    embedding_dim: int = 768
 
     # ── Chunking (tuned for legal docs) ───────────────────────────────────
     parent_chunk_size: int = 2000  # large: captures full legal clauses/sections

@@ -1,56 +1,58 @@
 """
-Reranker — unchanged logic, added async wrapper + logging.
+Reranker — now LLM-based instead of a local cross-encoder model.
 
-Original ran synchronously on the event loop (blocking).
-Now wrapped in asyncio.to_thread() — same fix as the LLM service.
-
-Why this matters: reranker runs a neural model (cross-encoder) on CPU.
-It takes 50-200ms depending on candidate count. Running that synchronously
-freezes FastAPI from handling any other request during that time.
+Why: the local cross-encoder (transformers + torch) needed ~150-250MB extra
+RAM on top of the embedder, which pushed the app over Render's free-tier
+512MB limit. This swaps it for a Groq LLM call that ranks candidates
+directly — same fail-fast-at-startup pattern (_load_model), negligible
+memory, no local model weights at all.
 """
 import asyncio
-from transformers import AutoTokenizer, AutoModelForSequenceClassification
-import torch
+import json
+
+from groq import Groq
 
 from app.core.config import settings
 from app.core.logging import get_logger
 
 logger = get_logger(__name__)
 
-_tokenizer = None
-_model = None
-
-
-def _load_model():
-    global _tokenizer, _model
-    if _model is None:
-        name = "cross-encoder/ms-marco-MiniLM-L-6-v2"
-        logger.info("[Reranker] Loading: %s", name)
-        _tokenizer = AutoTokenizer.from_pretrained(name)
-        _model = AutoModelForSequenceClassification.from_pretrained(name)
-        _model.eval()
-        logger.info("[Reranker] Loaded")
+_client = Groq(api_key=settings.groq_api_key)
+_RERANK_MODEL = settings.groq_model_fallback  # small/fast model is enough for scoring
 
 
 def _rerank_sync(query: str, candidates: list[dict], top_k: int) -> list[dict]:
-    """Sync reranking — runs in thread pool via asyncio.to_thread()."""
-    _load_model()
+    """Sync reranking via one Groq call — runs in thread pool via asyncio.to_thread()."""
     if not candidates:
         return []
 
-    pairs = [[query, c["text"]] for c in candidates]
-    inputs = _tokenizer(
-        pairs, padding=True, truncation=True, max_length=512, return_tensors="pt"
+    numbered = "\n".join(f"[{i}] {c['text'][:500]}" for i, c in enumerate(candidates))
+    prompt = (
+        f"Query: {query}\n\nCandidate passages:\n{numbered}\n\n"
+        f"Return ONLY a JSON array of the {min(top_k, len(candidates))} most relevant "
+        "passage indices, ordered most to least relevant, e.g. [2, 0, 5]. No other text."
     )
-    with torch.no_grad():
-        logits = _model(**inputs).logits.squeeze(-1)
-        scores = torch.sigmoid(logits).tolist()
 
-    if isinstance(scores, float):
-        scores = [scores]
-        
-    ranked = sorted(zip(scores, candidates), key=lambda x: x[0], reverse=True)
-    result = [{**doc, "rerank_score": float(score)} for score, doc in ranked[:top_k]]
+    response = _client.chat.completions.create(
+        model=_RERANK_MODEL,
+        messages=[{"role": "user", "content": prompt}],
+        temperature=0,
+        max_tokens=100,
+    )
+    raw = response.choices[0].message.content.strip()
+
+    try:
+        indices = json.loads(raw)
+    except json.JSONDecodeError:
+        logger.warning("[Reranker] Could not parse LLM ranking output (%s) — using original order", raw)
+        indices = list(range(min(top_k, len(candidates))))
+
+    result = []
+    for rank, idx in enumerate(indices[:top_k]):
+        if isinstance(idx, int) and 0 <= idx < len(candidates):
+            doc = candidates[idx]
+            score = 1.0 - (rank / max(len(indices), 1))  # simple descending score
+            result.append({**doc, "rerank_score": float(score)})
 
     logger.info(
         "[Reranker] top_score=%.3f | bottom_score=%.3f | returned %d/%d",
@@ -63,18 +65,27 @@ def _rerank_sync(query: str, candidates: list[dict], top_k: int) -> list[dict]:
 
 
 async def rerank(query: str, candidates: list[dict], top_k: int = 5) -> list[dict]:
-    """Async wrapper — reranking runs in thread pool, not on event loop.
-
-    Wrapped in a timeout: if the cross-encoder model isn't loaded yet
-    (e.g. cold start) and the HF Hub download stalls, this raises instead
-    of hanging the request forever — same fix as the LLM service's
-    asyncio.wait_for pattern.
-    """
+    """Async wrapper — reranking runs in thread pool, not on event loop."""
     try:
         return await asyncio.wait_for(
             asyncio.to_thread(_rerank_sync, query, candidates, top_k),
-            timeout=60,
+            timeout=30,
         )
     except asyncio.TimeoutError:
-        logger.error("[Reranker] Timed out after 60s — model load or inference stuck")
+        logger.error("[Reranker] Timed out after 30s")
         raise
+
+
+def _load_model():
+    """
+    Kept for main.py's startup fail-fast check. Verifies the Groq key
+    actually works with one tiny real call instead of loading any local
+    model — fails loudly at boot if the key is bad/missing.
+    """
+    logger.info("[Reranker] Verifying Groq API: %s", _RERANK_MODEL)
+    _client.chat.completions.create(
+        model=_RERANK_MODEL,
+        messages=[{"role": "user", "content": "ping"}],
+        max_tokens=1,
+    )
+    logger.info("[Reranker] Groq API ready")
