@@ -23,7 +23,7 @@ from app.db.redis_client import get_redis
 logger = get_logger(__name__)
 
 genai.configure(api_key=settings.gemini_api_key)
-_EMBED_MODEL = "models/text-embedding-004"  # 768-dim output# 768-dim output
+_EMBED_MODEL = "models/gemini-embedding-001"  # current model; truncated to 768-dim below
 
 
 def get_model() -> str:
@@ -34,7 +34,10 @@ def get_model() -> str:
     """
     logger.info("[Embedder] Verifying Gemini embedding API: %s", _EMBED_MODEL)
     result = genai.embed_content(
-        model=_EMBED_MODEL, content="startup healthcheck", task_type="retrieval_query"
+        model=_EMBED_MODEL,
+        content="startup healthcheck",
+        task_type="retrieval_query",
+        output_dimensionality=settings.embedding_dim,
     )
     if not result or "embedding" not in result:
         raise RuntimeError("Gemini embedding API did not return a vector")
@@ -46,7 +49,12 @@ def embed_batch(texts: list[str]) -> list[list[float]]:
     """Used for document ingestion — one API call per chunk."""
     vectors = []
     for t in texts:
-        result = genai.embed_content(model=_EMBED_MODEL, content=t, task_type="retrieval_document")
+        result = genai.embed_content(
+            model=_EMBED_MODEL,
+            content=t,
+            task_type="retrieval_document",
+            output_dimensionality=settings.embedding_dim,
+        )
         vectors.append(result["embedding"])
     return vectors
 
@@ -70,7 +78,12 @@ async def embed_query(text: str) -> list[float]:
     except RedisError as e:
         logger.warning("[Embedder] Cache get failed (continuing): %s", e)
 
-    result = genai.embed_content(model=_EMBED_MODEL, content=text, task_type="retrieval_query")
+    result = genai.embed_content(
+        model=_EMBED_MODEL,
+        content=text,
+        task_type="retrieval_query",
+        output_dimensionality=settings.embedding_dim,
+    )
     vector = result["embedding"]
 
     try:
