@@ -46,18 +46,27 @@ def get_model() -> str:
 
 
 def embed_batch(texts: list[str]) -> list[list[float]]:
-    """Used for document ingestion — one API call per chunk."""
-    vectors = []
-    for t in texts:
+    """
+    Used for document ingestion. Batches texts into as few API calls as
+    possible (Gemini allows up to 100 texts per call) instead of one call
+    per chunk — calling once per chunk hit the free-tier rate limit (429)
+    on documents with many chunks.
+    """
+    if not texts:
+        return []
+
+    vectors: list[list[float]] = []
+    BATCH_SIZE = 100  # Gemini's per-request limit
+    for i in range(0, len(texts), BATCH_SIZE):
+        batch = texts[i : i + BATCH_SIZE]
         result = genai.embed_content(
             model=_EMBED_MODEL,
-            content=t,
+            content=batch,
             task_type="retrieval_document",
             output_dimensionality=settings.embedding_dim,
         )
-        vectors.append(result["embedding"])
+        vectors.extend(result["embedding"])
     return vectors
-
 
 def _embedding_cache_key(text: str) -> str:
     normalized = text.strip().lower()
