@@ -23,7 +23,7 @@ from app.db.redis_client import get_redis
 logger = get_logger(__name__)
 
 genai.configure(api_key=settings.gemini_api_key)
-_EMBED_MODEL = "models/embedding-001"  # 768-dim output
+_EMBED_MODEL = "models/text-embedding-004"  # 768-dim output# 768-dim output
 
 
 def get_model() -> str:
