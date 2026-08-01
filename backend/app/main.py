@@ -87,12 +87,16 @@ app = FastAPI(
 )
 
 # CORS
+# Localhost is always allowed for local dev. In production, set FRONTEND_URL
+# (comma-separated if you ever need more than one) to your deployed frontend
+# origin, e.g. https://legalmind-frontend.onrender.com
+_allowed_origins = ["http://localhost:3000", "http://127.0.0.1:3000"]
+if settings.frontend_url:
+    _allowed_origins += [o.strip() for o in settings.frontend_url.split(",") if o.strip()]
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[
-        "http://localhost:3000",
-        "http://127.0.0.1:3000",
-    ],
+    allow_origins=_allowed_origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],

@@ -15,6 +15,11 @@ class Settings(BaseSettings):
     # ── Database ───────────────────────────────────────────────────────────
     database_url: str = ""
 
+    # ── CORS ──────────────────────────────────────────────────────────────
+    # comma-separated list of extra allowed origins (e.g. your deployed
+    # frontend URL). Localhost is always allowed for local dev regardless.
+    frontend_url: str = ""
+
     # ── Redis ──────────────────────────────────────────────────────────────
     redis_url: str = ""
     cache_ttl: int = 3600         # query answer cache — 1 hour
