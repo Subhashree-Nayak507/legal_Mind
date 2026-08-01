@@ -53,7 +53,7 @@ async def close_redis() -> None:
 
 def _cache_key(query: str) -> str:
     normalized = query.strip().lower()
-    return "rag:cache:" + hashlib.sha256(normalized.encode()).hexdigest()
+    return "legalmind:cache:" + hashlib.sha256(normalized.encode()).hexdigest()
 
 
 async def get_cached(query: str) -> Optional[dict]:
@@ -80,7 +80,7 @@ async def set_cached(query: str, response: dict) -> None:
 # ── Session Memory ─────────────────────────────────────────────────────────────
 
 def _session_key(session_id: str) -> str:
-    return f"rag:session:{session_id}"
+    return f"legalmind:session:{session_id}"
 
 
 async def get_history(session_id: str, max_turns: int = 10) -> list[dict]:
@@ -133,7 +133,7 @@ async def check_rate_limit(identifier: str, limit: int, window: int = 60) -> tup
         (allowed: bool, remaining_requests: int)
     """
     try:
-        key = f"rag:ratelimit:{identifier}"
+        key = f"legalmind:ratelimit:{identifier}"
         redis = get_redis()
  
         current_count = await redis.incr(key)

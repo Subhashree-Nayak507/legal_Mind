@@ -20,9 +20,6 @@ class DocumentChunk(Base):
     __tablename__ = "document_chunks"
     id = Column(Integer, primary_key=True, autoincrement=True)
     doc_id = Column(String, nullable=False, index=True)
-    # Owns this document — every query/ingest scopes to this column.
-    # Without it, any authenticated user could read any other user's
-    # uploaded documents — the multi-tenancy gap from the code review.
     user_id = Column(String, ForeignKey("users.id"), nullable=False, index=True)
     filename = Column(String, nullable=False)
     chunk_index = Column(Integer, nullable=False)

@@ -1,14 +1,8 @@
-"""
-Documents route.
 
-GET  /documents        — list all docs uploaded by the logged-in user
-DELETE /documents/{doc_id} — delete a doc and all its chunks
-GET  /history          — return chat history for the current session
-"""
 from fastapi import APIRouter, HTTPException, Depends, Query
 
 from app.db.postgres import list_user_documents, delete_document
-from app.db.redis_client import get_history, format_history
+from app.db.redis_client import get_history
 from app.auth.dependencies import get_current_user
 from app.core.logging import get_logger
 

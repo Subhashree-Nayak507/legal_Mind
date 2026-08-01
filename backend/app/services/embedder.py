@@ -35,7 +35,7 @@ def embed_batch(texts: list[str]) -> list[list[float]]:
 
 def _embedding_cache_key(text: str) -> str:
     normalized = text.strip().lower()
-    return "rag:embcache:" + hashlib.sha256(normalized.encode()).hexdigest()
+    return "legalmind:embcache:" + hashlib.sha256(normalized.encode()).hexdigest()
 
 
 async def embed_query(text: str) -> list[float]:
@@ -61,4 +61,3 @@ async def embed_query(text: str) -> list[float]:
         logger.warning("[Embedder] Cache set failed (non-fatal): %s", e)
 
     return vector
-
