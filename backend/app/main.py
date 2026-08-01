@@ -32,6 +32,8 @@ from app.services.embedder import get_model
 from app.services.reranker import _load_model as load_reranker_model
 from app.middleware.rate_limit import RateLimitMiddleware
 from app.api import ingest, query, auth,documents
+from fastapi.staticfiles import StaticFiles
+import os
 
 setup_logging()
 logger = get_logger(__name__)
@@ -125,3 +127,10 @@ async def health():
         checks["redis"] = f"error: {e}"
         checks["status"] = "degraded"
     return checks
+
+
+# Serve the built Next.js frontend (static export) — must be mounted LAST
+# so it never shadows the /api/v1/* and /health routes above.
+_static_dir = os.path.join(os.path.dirname(__file__), "static")
+if os.path.isdir(_static_dir):
+    app.mount("/", StaticFiles(directory=_static_dir, html=True), name="frontend")
