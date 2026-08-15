@@ -1,17 +1,11 @@
 """
-Chunker — updated chunk sizes for legal documents.
-
-Only change from original: parent_size 1500→2000, child_size 200→300, overlap 30→50.
-
 Why for legal docs specifically:
   - Legal clauses are long (200-600 words). child_size=200 was cutting
     mid-clause, splitting "shall not be liable for... [cut] ...any indirect damages"
     into two meaningless fragments.
   - child_size=300 keeps most sub-clauses intact.
-  - parent_size=2000 captures a full contract section (e.g. "Limitation of Liability")
-    including its sub-clauses — the LLM gets the full legal context.
+  - parent_size=2000 captures a full contract section including its sub-clauses — the LLM gets the full legal context.
   - overlap=50 prevents sentence boundary cuts at chunk edges.
-
 The retrieval flow:
   child chunk → vector search finds it (small = precise match)
   parent chunk → LLM reads it (large = full legal context)
@@ -94,20 +88,10 @@ def recursive_chunk(
 
 def build_parent_child_chunks(
     text: str,
-    parent_size: int = 2000,   # ← updated for legal docs (was 1500)
-    child_size: int = 300,     # ← updated for legal docs (was 200)
-    overlap: int = 50,         # ← updated for legal docs (was 30)
+    parent_size: int = 2000,   
+    child_size: int = 300,    
+    overlap: int = 50,        
 ) -> list[dict]:
-    """
-    Two-level chunking:
-      Parent chunks — large, sent to LLM as context (full clause/section)
-      Child chunks  — small, used for vector search (precise matching)
-
-    During query:
-      1. Vector search finds the right child chunk
-      2. System fetches its parent for full context
-      3. LLM reads the parent — gets complete legal meaning
-    """
     parents = recursive_chunk(text, chunk_size=parent_size, chunk_overlap=0)
     result = []
     for p_idx, parent_text in enumerate(parents):

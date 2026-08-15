@@ -1,6 +1,4 @@
-"""
-PostgreSQL — unchanged logic, updated to use config + structured logging.
-"""
+
 from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy import text
@@ -75,9 +73,7 @@ async def store_chunks(records: list[dict]):
 async def similarity_search(
     query_embedding: list[float], user_id: str, top_k: int = 10
 ) -> list[dict]:
-    # WHERE user_id = :uid scopes every search to the caller's own documents.
-    # This is the multi-tenancy fix — without it, this query would return
-    # every user's chunks ranked together.
+   
     async with AsyncSessionLocal() as session:
         result = await session.execute(
             text("""
@@ -95,8 +91,6 @@ async def similarity_search(
 
 
 async def fetch_parent(parent_id: int, user_id: str) -> dict | None:
-    # user_id check here too — prevents fetching another user's parent
-    # chunk even if its id were guessed/leaked.
     async with AsyncSessionLocal() as session:
         result = await session.execute(
             text("""
@@ -130,7 +124,6 @@ async def keyword_search(
         return [dict(r._mapping) for r in result.fetchall()]
 
 
-# ── User account functions ──────────────────────────────────────────────────
 
 async def create_user(email: str, hashed_password: str, name: str | None = None) -> dict:
     from app.db.models import User
@@ -154,7 +147,6 @@ async def get_user_by_email(email: str) -> dict | None:
 
 
 async def list_user_documents(user_id: str) -> list[dict]:
-    """Return one row per uploaded document for this user — doc_id, filename, chunk count, upload time."""
     async with AsyncSessionLocal() as session:
         result = await session.execute(
             text("""
@@ -172,7 +164,6 @@ async def list_user_documents(user_id: str) -> list[dict]:
  
  
 async def delete_document(doc_id: str, user_id: str) -> bool:
-    """Delete all chunks for a doc. Returns True if anything was deleted."""
     async with AsyncSessionLocal() as session:
         async with session.begin():
             result = await session.execute(

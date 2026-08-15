@@ -1,8 +1,4 @@
-"""
-Auth request/response schemas — JWT-only, email + password.
-"""
 from pydantic import BaseModel, EmailStr, Field
-
 
 class RegisterRequest(BaseModel):
     email: EmailStr

@@ -4,9 +4,6 @@ import { useRouter } from 'next/navigation'
 import { api, ApiError } from '@/lib/api'
 import { useAuth } from '@/app/context/AuthContext'
 
-// Fixed session id — same user always resumes the same conversation,
-// even after page refresh. Scoped by user_id on the backend so two
-// different users sharing "main" never collide.
 const SESSION_ID = 'main'
 
 type Message = { role: 'user' | 'assistant'; content: string; sources?: any[]; latency?: number; fromCache?: boolean }

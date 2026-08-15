@@ -1,12 +1,3 @@
-"""
-Ingest route — minimal changes from original.
-
-Changes:
-  - chunk sizes now come from config (not hardcoded)
-  - file size limit from config (not hardcoded 10MB)
-  - structured logging added
-  - embedder runs in thread pool (was blocking event loop)
-"""
 import asyncio
 import os
 import time

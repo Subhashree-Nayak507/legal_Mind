@@ -1,9 +1,3 @@
-"""
-Auth routes — register + login. JWT-only, no OAuth.
-
-POST /api/v1/auth/register  → creates user, returns token (auto-login)
-POST /api/v1/auth/login     → verifies password, returns token
-"""
 from fastapi import APIRouter, HTTPException, status
 
 from app.auth.schemas import RegisterRequest, LoginRequest, TokenResponse

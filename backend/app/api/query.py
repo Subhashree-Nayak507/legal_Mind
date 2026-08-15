@@ -1,14 +1,3 @@
-"""
-Query route — updated to use fixed services.
-
-Changes vs original:
-  - rerank() is now async (was sync, blocked event loop)
-  - call_llm() returns LLMResult dataclass (not raw string)
-  - Confidence threshold and reasoning logged (was silent)
-  - Per-layer latency logged: retrieval, rerank, LLM separately
-  - history passed as list[dict] directly (not formatted string at this stage)
-  - LLM provider and model returned in response (useful for debugging)
-"""
 import time
 import logging
 
@@ -37,11 +26,8 @@ async def query_document(req: QueryRequest, user: dict = Depends(get_current_use
     start = time.monotonic()
     user_id = user["id"]
 
-    # Cache key includes user_id — otherwise user A could get an answer
-    # cached from user B's documents for the same question text.
     cache_key = f"{user_id}:{req.question}"
 
-    # ── Cache check ────────────────────────────────────────────────────────
     cached = await get_cached(cache_key)
     if cached:
         logger.info("[Query] Cache hit for session=%s", req.session_id)
@@ -51,7 +37,6 @@ async def query_document(req: QueryRequest, user: dict = Depends(get_current_use
             "latency_ms": int((time.monotonic() - start) * 1000),
         }
 
-    # ── Retrieval (scoped to this user's documents only) ─────────────────────
     t_retrieval = time.monotonic()
     candidates = await retrieve(req.question, user_id=user_id, top_k=settings.retrieval_top_k)
     retrieval_ms = int((time.monotonic() - t_retrieval) * 1000)
@@ -59,7 +44,6 @@ async def query_document(req: QueryRequest, user: dict = Depends(get_current_use
     if not candidates:
         raise HTTPException(404, "No documents found. Please upload documents first.")
 
-    # ── Rerank ────────────────────────────────────────────────────────────
     t_rerank = time.monotonic()
     try:
         top_chunks = await rerank(req.question, candidates, top_k=settings.rerank_top_n)
@@ -74,12 +58,6 @@ async def query_document(req: QueryRequest, user: dict = Depends(get_current_use
     best_score = top_chunks[0]["rerank_score"] if top_chunks else 0.0
     second_score = top_chunks[1]["rerank_score"] if len(top_chunks) > 1 else 0.0
 
-    # ── Confidence gate (anti-hallucination) ──────────────────────────────
-    # This specific reranker model wasn't trained on legal text, so its raw
-    # scores sit low and inconsistent (often 0.0-0.15 even for correct
-    # matches). A fixed absolute threshold doesn't work reliably here.
-    # Instead: trust the answer if the top chunk clearly stands out from
-    # the rest (gap) OR scores reasonably high on its own.
     gap = best_score - second_score
     is_confident = best_score > 0.01 and (gap > 0.02 or best_score > 0.3)
 
@@ -93,13 +71,11 @@ async def query_document(req: QueryRequest, user: dict = Depends(get_current_use
             "[Query] Not confident (best=%.3f gap=%.3f) — refusing to answer",
             best_score, gap,
         )
-    # ── Session memory (namespaced per user so session_id can't collide
-    #    across different users) ───────────────────────────────────────────
+
     scoped_session_id = f"{user_id}:{req.session_id}"
     history = await get_history(scoped_session_id)
     history_str = format_history(history)
 
-    # ── LLM call ──────────────────────────────────────────────────────────
     t_llm = time.monotonic()
     llm_result = await call_llm(req.question, top_chunks, history_str)
     llm_ms = int((time.monotonic() - t_llm) * 1000)
@@ -113,7 +89,6 @@ async def query_document(req: QueryRequest, user: dict = Depends(get_current_use
         llm_result.provider, user_id, req.session_id,
     )
 
-    # ── Save to session + cache ────────────────────────────────────────────
     await save_turn(scoped_session_id, req.question, llm_result.answer)
 
     sources = [

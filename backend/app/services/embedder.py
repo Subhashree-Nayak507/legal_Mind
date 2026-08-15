@@ -1,15 +1,3 @@
-"""
-Embedder — now calls Gemini's embedding API instead of loading a local
-sentence-transformers model.
-
-Why: sentence-transformers pulls in torch, which alone uses 300-400MB of
-RAM before any model weights load. On Render's free 512MB tier, that left
-no room for the reranker or the rest of the app, causing OOM crashes.
-Calling Gemini's hosted embedding endpoint removes torch from this service
-entirely — same fail-fast-at-startup behavior, negligible memory.
-
-Redis caching for embed_query() is unchanged.
-"""
 import hashlib
 import json
 
@@ -23,15 +11,10 @@ from app.db.redis_client import get_redis
 logger = get_logger(__name__)
 
 genai.configure(api_key=settings.gemini_api_key)
-_EMBED_MODEL = "models/gemini-embedding-001"  # current model; truncated to 768-dim below
+_EMBED_MODEL = "models/gemini-embedding-001"  
 
 
 def get_model() -> str:
-    """
-    Kept for compatibility with main.py's startup check. Makes one real
-    API call so a bad/missing GEMINI_API_KEY fails loudly at boot instead
-    of silently on the user's first query.
-    """
     logger.info("[Embedder] Verifying Gemini embedding API: %s", _EMBED_MODEL)
     result = genai.embed_content(
         model=_EMBED_MODEL,
@@ -74,10 +57,6 @@ def _embedding_cache_key(text: str) -> str:
 
 
 async def embed_query(text: str) -> list[float]:
-    """
-    Checks Redis cache first. Fails open: if Redis is down, falls straight
-    through to calling the embedding API directly.
-    """
     cache_key = _embedding_cache_key(text)
     try:
         cached = await get_redis().get(cache_key)

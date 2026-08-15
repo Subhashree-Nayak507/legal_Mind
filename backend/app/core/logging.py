@@ -1,13 +1,3 @@
-"""
-Structured logging.
-Development: human-readable colored output.
-Production: JSON lines — ingestible by any log aggregator (Datadog, CloudWatch).
-
-Usage:
-    from app.core.logging import get_logger
-    logger = get_logger(__name__)
-    logger.info("Query answered", extra={"latency_ms": 142, "provider": "groq-primary"})
-"""
 import logging
 import sys
 from app.core.config import settings

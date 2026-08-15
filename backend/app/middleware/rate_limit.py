@@ -1,9 +1,3 @@
-"""
-Rate limiting middleware — simple per-IP fixed window.
-
-Every IP gets X requests per minute per route.
-Counter lives in Redis so it works across restarts.
-"""
 from fastapi import Request
 from fastapi.responses import JSONResponse
 from starlette.middleware.base import BaseHTTPMiddleware

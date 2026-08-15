@@ -1,11 +1,3 @@
-"""
-Hybrid Retriever — unchanged logic, added structured logging.
-
-Logging added so you can answer in interview:
-  "How do you debug a slow or bad retrieval?"
-  → "Every retrieval logs: vector hits, keyword hits, merged count,
-     and the top rerank score. I can see immediately which stage is slow."
-"""
 from app.db.postgres import similarity_search, keyword_search, fetch_parent
 from app.services.embedder import embed_query
 from app.core.logging import get_logger
@@ -51,8 +43,6 @@ async def retrieve(query: str, user_id: str, top_k: int = 20) -> list[dict]:
     # Merge with RRF
     merged = _rrf_merge(dense, sparse)[:top_k]
     logger.info("[Retriever] Merged: %d unique candidates", len(merged))
-
-    # Fetch parent text for each child chunk (gives LLM full clause context)
     enriched = []
     seen_parents: set = set()
     for child in merged:

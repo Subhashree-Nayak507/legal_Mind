@@ -1,24 +1,3 @@
-"""
-LLM Service — fixed version.
-
-Fixes applied vs original:
-  FIX 1 — Singleton clients: Groq() and Gemini model created ONCE at module
-           load, not per request. Creating a new HTTP client per request wastes
-           connection pool, adds ~50ms overhead, leaks sockets.
-
-  FIX 2 — Async LLM calls: Original used sync Groq client inside async route,
-           which blocked FastAPI's event loop. Every request froze the entire
-           server until the LLM responded. Now wrapped in asyncio.to_thread()
-           so the event loop stays free for other requests during LLM wait.
-
-  FIX 3 — Retry logic: Added exponential backoff (1s, 2s) before failing over.
-           Rate limit errors skip retries and jump to next provider immediately.
-
-  FIX 4 — Structured logging: Every provider attempt logged with latency.
-           Interviewers ask "how do you debug slow queries" — you point here.
-
-
-"""
 import asyncio
 import time
 from dataclasses import dataclass
@@ -32,12 +11,10 @@ from app.core.logging import get_logger
 
 logger = get_logger(__name__)
 
-# ── FIX 1: Singletons created once at import time ─────────────────────────────
 _groq_client = Groq(api_key=settings.groq_api_key)
 
 genai.configure(api_key=settings.gemini_api_key)
 _gemini_model = genai.GenerativeModel(settings.gemini_model)
-# ──────────────────────────────────────────────────────────────────────────────
 
 SYSTEM_PROMPT = """You are a precise and helpful legal document assistant.
 Answer ONLY from the provided context chunks.
@@ -45,7 +22,6 @@ Never guess, invent, or hallucinate information.
 If the context does not support the answer, say exactly:
 "I don't have enough information in the uploaded documents to answer this."
 Be clear and concise. Cite the source document and clause when relevant."""
-
 
 @dataclass
 class LLMResult:
@@ -107,22 +83,18 @@ async def call_llm(query: str, chunks: list[dict], history: str) -> LLMResult:
         {"role": "user",   "content": prompt},
     ]
 
-    # ── Provider 1: Groq primary ───────────────────────────────────────────
     result = await _try_groq(messages, settings.groq_model_primary, "groq-primary")
     if result:
         return result
 
-    # ── Provider 2: Groq fallback ──────────────────────────────────────────
     result = await _try_groq(messages, settings.groq_model_fallback, "groq-fallback")
     if result:
         return result
 
-    # ── Provider 3: Gemini ─────────────────────────────────────────────────
     result = await _try_gemini(prompt)
     if result:
         return result
 
-    # All failed
     logger.error("[LLM] All providers failed for query: %s", query[:80])
     return LLMResult(
         answer="I'm temporarily unavailable. Please try again in a moment.",
@@ -138,8 +110,6 @@ async def _try_groq(
     for attempt in range(settings.llm_max_retries + 1):
         start = time.monotonic()
         try:
-            # FIX 2: asyncio.to_thread() — sync Groq SDK runs in thread pool,
-            # never blocks the event loop
             answer = await asyncio.wait_for(
                 asyncio.to_thread(_call_groq_sync, messages, model),
                 timeout=settings.llm_timeout,

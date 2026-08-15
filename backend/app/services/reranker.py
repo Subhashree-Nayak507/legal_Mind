@@ -1,12 +1,3 @@
-"""
-Reranker — now LLM-based instead of a local cross-encoder model.
-
-Why: the local cross-encoder (transformers + torch) needed ~150-250MB extra
-RAM on top of the embedder, which pushed the app over Render's free-tier
-512MB limit. This swaps it for a Groq LLM call that ranks candidates
-directly — same fail-fast-at-startup pattern (_load_model), negligible
-memory, no local model weights at all.
-"""
 import asyncio
 import json
 
@@ -18,11 +9,10 @@ from app.core.logging import get_logger
 logger = get_logger(__name__)
 
 _client = Groq(api_key=settings.groq_api_key)
-_RERANK_MODEL = settings.groq_model_fallback  # small/fast model is enough for scoring
+_RERANK_MODEL = settings.groq_model_fallback  
 
 
 def _rerank_sync(query: str, candidates: list[dict], top_k: int) -> list[dict]:
-    """Sync reranking via one Groq call — runs in thread pool via asyncio.to_thread()."""
     if not candidates:
         return []
 
