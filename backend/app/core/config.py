@@ -6,8 +6,8 @@ class Settings(BaseSettings):
     # ── LLM ───────────────────────────────────────────────────────────────
     groq_api_key: str = ""
     gemini_api_key: str = ""
-    groq_model_primary: str = "llama-3.3-70b-versatile"
-    groq_model_fallback: str = "llama-3.1-8b-instant"
+    groq_model_primary: str = "openai/gpt-oss-120b"
+    groq_model_fallback: str = "openai/gpt-oss-20b"
     gemini_model: str = "gemini-2.5-flash"
     llm_timeout: int = 8          
     llm_max_retries: int = 2      
