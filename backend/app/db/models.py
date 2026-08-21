@@ -22,6 +22,7 @@ class DocumentChunk(Base):
     doc_id = Column(String, nullable=False, index=True)
     user_id = Column(String, ForeignKey("users.id"), nullable=False, index=True)
     filename = Column(String, nullable=False)
+    content_hash = Column(String, nullable=True, index=True)  # sha256 of raw file bytes — used to detect re-uploads of identical content
     chunk_index = Column(Integer, nullable=False)
     chunk_type = Column(String, default="child")
     parent_id = Column(Integer, nullable=True)

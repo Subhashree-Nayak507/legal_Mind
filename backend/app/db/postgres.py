@@ -25,6 +25,17 @@ async def init_db():
     async with engine.begin() as conn:
         await conn.execute(text("CREATE EXTENSION IF NOT EXISTS vector"))
         await conn.run_sync(Base.metadata.create_all)
+        # Adds content_hash to an already-existing table (create_all only
+        # creates new tables, it never alters existing ones) — safe to run
+        # every startup, no-ops once the column is already there.
+        await conn.execute(text("""
+            ALTER TABLE document_chunks
+            ADD COLUMN IF NOT EXISTS content_hash VARCHAR
+        """))
+        await conn.execute(text("""
+            CREATE INDEX IF NOT EXISTS doc_chunks_hash_idx
+            ON document_chunks (user_id, content_hash)
+        """))
         await conn.execute(text("""
             CREATE INDEX IF NOT EXISTS doc_chunks_emb_idx
             ON document_chunks USING hnsw (embedding vector_cosine_ops)
@@ -39,6 +50,27 @@ async def init_db():
     logger.info("[DB] Initialized: pgvector + HNSW + FTS indexes ready")
 
 
+async def find_duplicate_document(content_hash: str, user_id: str) -> dict | None:
+    """
+    Checks if this user already uploaded a file with identical content. Returns the
+    existing doc's info if found, so ingest.py can skip re-processing.
+    """
+    async with AsyncSessionLocal() as session:
+        result = await session.execute(
+            text("""
+                SELECT doc_id, filename,
+                       COUNT(*) FILTER (WHERE chunk_type = 'child') AS chunk_count
+                FROM document_chunks
+                WHERE user_id = :uid AND content_hash = :hash
+                GROUP BY doc_id, filename
+                LIMIT 1
+            """),
+            {"uid": user_id, "hash": content_hash},
+        )
+        row = result.fetchone()
+        return dict(row._mapping) if row else None
+
+
 async def store_chunks(records: list[dict]):
     async with AsyncSessionLocal() as session:
         async with session.begin():
@@ -49,7 +81,7 @@ async def store_chunks(records: list[dict]):
                 if rec.get("chunk_type") == "parent":
                     chunk = DocumentChunk(
                         doc_id=rec["doc_id"], user_id=rec["user_id"],
-                        filename=rec["filename"],
+                        filename=rec["filename"], content_hash=rec.get("content_hash"),
                         chunk_index=rec["chunk_index"], chunk_type="parent",
                         parent_id=None, text=rec["text"], embedding=None,
                     )
@@ -62,7 +94,7 @@ async def store_chunks(records: list[dict]):
                     db_parent_id = parent_map.get(rec.get("parent_chunk_index"))
                     chunk = DocumentChunk(
                         doc_id=rec["doc_id"], user_id=rec["user_id"],
-                        filename=rec["filename"],
+                        filename=rec["filename"], content_hash=rec.get("content_hash"),
                         chunk_index=rec["chunk_index"], chunk_type="child",
                         parent_id=db_parent_id, text=rec["text"],
                         embedding=rec["embedding"],
@@ -73,7 +105,9 @@ async def store_chunks(records: list[dict]):
 async def similarity_search(
     query_embedding: list[float], user_id: str, top_k: int = 10
 ) -> list[dict]:
-   
+    # WHERE user_id = :uid scopes every search to the caller's own documents.
+    # This is the multi-tenancy fix — without it, this query would return
+    # every user's chunks ranked together.
     async with AsyncSessionLocal() as session:
         result = await session.execute(
             text("""
@@ -91,6 +125,8 @@ async def similarity_search(
 
 
 async def fetch_parent(parent_id: int, user_id: str) -> dict | None:
+    # user_id check here too — prevents fetching another user's parent
+    # chunk even if its id were guessed/leaked.
     async with AsyncSessionLocal() as session:
         result = await session.execute(
             text("""
@@ -124,7 +160,6 @@ async def keyword_search(
         return [dict(r._mapping) for r in result.fetchall()]
 
 
-
 async def create_user(email: str, hashed_password: str, name: str | None = None) -> dict:
     from app.db.models import User
     async with AsyncSessionLocal() as session:
@@ -147,6 +182,7 @@ async def get_user_by_email(email: str) -> dict | None:
 
 
 async def list_user_documents(user_id: str) -> list[dict]:
+    """Return one row per uploaded document for this user — doc_id, filename, chunk count, upload time."""
     async with AsyncSessionLocal() as session:
         result = await session.execute(
             text("""
@@ -164,6 +200,7 @@ async def list_user_documents(user_id: str) -> list[dict]:
  
  
 async def delete_document(doc_id: str, user_id: str) -> bool:
+    """Delete all chunks for a doc. Returns True if anything was deleted."""
     async with AsyncSessionLocal() as session:
         async with session.begin():
             result = await session.execute(
@@ -174,4 +211,3 @@ async def delete_document(doc_id: str, user_id: str) -> bool:
                 {"did": doc_id, "uid": user_id},
             )
             return result.rowcount > 0
- 

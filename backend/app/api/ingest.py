@@ -1,5 +1,6 @@
 
 import asyncio
+import hashlib
 import os
 import time
 import uuid
@@ -10,7 +11,7 @@ from google.api_core.exceptions import ResourceExhausted, ServiceUnavailable
 
 from app.services.chunker import extract_text, build_parent_child_chunks, SUPPORTED_EXTENSIONS
 from app.services.embedder import embed_batch
-from app.db.postgres import store_chunks
+from app.db.postgres import store_chunks, find_duplicate_document
 from app.core.config import settings
 from app.core.logging import get_logger
 from app.auth.dependencies import get_current_user
@@ -42,6 +43,27 @@ async def ingest_document(
     max_bytes = settings.max_file_size_mb * 1024 * 1024
     if len(file_bytes) > max_bytes:
         raise HTTPException(400, f"File too large. Max {settings.max_file_size_mb}MB.")
+
+    # Hash the raw bytes to detect re-uploads of identical content — checked
+    # BEFORE extraction/chunking/embedding so a repeat upload costs nothing
+    # (no wasted Gemini/Groq quota) and returns instantly.
+    content_hash = hashlib.sha256(file_bytes).hexdigest()
+    existing = await find_duplicate_document(content_hash, user_id)
+    if existing:
+        elapsed_ms = int((time.monotonic() - start) * 1000)
+        logger.info(
+            "[Ingest] %s is a duplicate of already-uploaded %s (doc_id=%s) — skipped re-processing",
+            file.filename, existing["filename"], existing["doc_id"],
+        )
+        return {
+            "doc_id":         existing["doc_id"],
+            "filename":       existing["filename"],
+            "format":         os.path.splitext(existing["filename"] or "")[1].lower(),
+            "parent_chunks":  None,
+            "child_chunks":   existing["chunk_count"],
+            "latency_ms":     elapsed_ms,
+            "duplicate":      True,
+        }
 
     doc_id = str(uuid.uuid4())
 
@@ -78,7 +100,8 @@ async def ingest_document(
     emb_iter = iter(child_embeddings)
     records = []
     for c in chunks:
-        rec = {"doc_id": doc_id, "user_id": user_id, "filename": file.filename, **c}
+        rec = {"doc_id": doc_id, "user_id": user_id, "filename": file.filename,
+               "content_hash": content_hash, **c}
         if c["chunk_type"] == "child":
             rec["embedding"] = next(emb_iter)
         records.append(rec)
