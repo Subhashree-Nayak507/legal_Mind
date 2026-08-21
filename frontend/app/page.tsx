@@ -4,6 +4,9 @@ import { useRouter } from 'next/navigation'
 import { api, ApiError } from '@/lib/api'
 import { useAuth } from '@/app/context/AuthContext'
 
+// Fixed session id — same user always resumes the same conversation,
+// even after page refresh. Scoped by user_id on the backend so two
+// different users sharing "main" never collide.
 const SESSION_ID = 'main'
 
 type Message = { role: 'user' | 'assistant'; content: string; sources?: any[]; latency?: number; fromCache?: boolean }
@@ -35,10 +38,9 @@ export default function Home() {
   }, [])
 
   useEffect(() => {
-    if (!authLoading && !isAuthed) router.push('/login')
+    if (!authLoading && !isAuthed) router.replace('/login')
   }, [authLoading, isAuthed, router])
 
-  // Load documents + chat history from backend on mount
   useEffect(() => {
     if (!isAuthed) return
     // Load previously uploaded documents for this user
@@ -75,7 +77,7 @@ export default function Home() {
       setDocs(updated.documents || [])
       if (isMobile) setSidebarOpen(false)
     } catch (err) {
-      if (err instanceof ApiError && err.status === 401) { logout(); router.push('/login'); return }
+      if (err instanceof ApiError && err.status === 401) { logout(); router.replace('/login'); return }
       setUploadMsg(`✗ ${err instanceof ApiError ? err.message : 'Upload failed. Is the backend running?'}`)
     }
     setUploading(false)
@@ -106,7 +108,7 @@ export default function Home() {
         sources: data.sources, latency: data.latency_ms, fromCache: data.from_cache,
       }])
     } catch (err) {
-      if (err instanceof ApiError && err.status === 401) { logout(); router.push('/login'); return }
+      if (err instanceof ApiError && err.status === 401) { logout(); router.replace('/login'); return }
       setMessages(prev => [...prev, {
         role: 'assistant',
         content: `Error: ${err instanceof ApiError ? err.message : 'Connection error. Is the backend running?'}`,
@@ -222,7 +224,7 @@ export default function Home() {
 
         {/* Logout */}
         <div style={{ padding: '14px 20px', borderTop: '1px solid #1e293b' }}>
-          <button onClick={() => { logout(); router.push('/login') }}
+          <button onClick={() => { logout(); router.replace('/login') }}
             style={{ width: '100%', background: 'transparent', border: '1px solid #243249', borderRadius: 9,
               padding: '9px 0', color: '#94a3b8', fontSize: 13, cursor: 'pointer' }}>
             Logout

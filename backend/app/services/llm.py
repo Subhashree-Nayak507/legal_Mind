@@ -3,7 +3,7 @@ import time
 from dataclasses import dataclass
 from typing import Optional
 
-from groq import Groq, RateLimitError as GroqRateLimit
+from groq import Groq, RateLimitError as GroqRateLimit, BadRequestError as GroqBadRequest
 import google.generativeai as genai
 
 from app.core.config import settings
@@ -16,12 +16,14 @@ _groq_client = Groq(api_key=settings.groq_api_key)
 genai.configure(api_key=settings.gemini_api_key)
 _gemini_model = genai.GenerativeModel(settings.gemini_model)
 
+
 SYSTEM_PROMPT = """You are a precise and helpful legal document assistant.
 Answer ONLY from the provided context chunks.
 Never guess, invent, or hallucinate information.
 If the context does not support the answer, say exactly:
 "I don't have enough information in the uploaded documents to answer this."
 Be clear and concise. Cite the source document and clause when relevant."""
+
 
 @dataclass
 class LLMResult:
@@ -83,18 +85,22 @@ async def call_llm(query: str, chunks: list[dict], history: str) -> LLMResult:
         {"role": "user",   "content": prompt},
     ]
 
+    # ── Provider 1: Groq primary ───────────────────────────────────────────
     result = await _try_groq(messages, settings.groq_model_primary, "groq-primary")
     if result:
         return result
 
+    # ── Provider 2: Groq fallback ──────────────────────────────────────────
     result = await _try_groq(messages, settings.groq_model_fallback, "groq-fallback")
     if result:
         return result
 
+    # ── Provider 3: Gemini ─────────────────────────────────────────────────
     result = await _try_gemini(prompt)
     if result:
         return result
 
+    # All failed
     logger.error("[LLM] All providers failed for query: %s", query[:80])
     return LLMResult(
         answer="I'm temporarily unavailable. Please try again in a moment.",
@@ -110,6 +116,7 @@ async def _try_groq(
     for attempt in range(settings.llm_max_retries + 1):
         start = time.monotonic()
         try:
+            
             answer = await asyncio.wait_for(
                 asyncio.to_thread(_call_groq_sync, messages, model),
                 timeout=settings.llm_timeout,
@@ -125,6 +132,10 @@ async def _try_groq(
         except GroqRateLimit:
             logger.warning("[LLM] %s rate limited — skipping to next provider", label)
             return None  # rate limit = don't retry, move to next provider
+
+        except GroqBadRequest as e:
+            logger.warning("[LLM] %s rejected request (%s) — skipping to next provider", label, e)
+            return None
 
         except Exception as e:
             if attempt < settings.llm_max_retries:
@@ -143,7 +154,7 @@ async def _try_gemini(prompt: str) -> Optional[LLMResult]:
     try:
         answer = await asyncio.wait_for(
             asyncio.to_thread(_call_gemini_sync, prompt),
-            timeout=settings.llm_timeout + 2,  # slightly longer for Gemini
+            timeout=settings.llm_timeout + 2,  
         )
         latency = int((time.monotonic() - start) * 1000)
         logger.info("[LLM] gemini responded in %dms", latency)

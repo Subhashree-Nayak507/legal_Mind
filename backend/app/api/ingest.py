@@ -1,3 +1,4 @@
+
 import asyncio
 import os
 import time
@@ -5,6 +6,7 @@ import uuid
 import logging
 
 from fastapi import APIRouter, UploadFile, File, HTTPException, Depends
+from google.api_core.exceptions import ResourceExhausted, ServiceUnavailable
 
 from app.services.chunker import extract_text, build_parent_child_chunks, SUPPORTED_EXTENSIONS
 from app.services.embedder import embed_batch
@@ -60,7 +62,18 @@ async def ingest_document(
     child_texts = [c["text"] for c in chunks if c["chunk_type"] == "child"]
 
     # Run embedding in thread pool — sentence-transformers is CPU-bound
-    child_embeddings = await asyncio.to_thread(embed_batch, child_texts) if child_texts else []
+    try:
+        child_embeddings = await asyncio.to_thread(embed_batch, child_texts) if child_texts else []
+    except (ResourceExhausted, ServiceUnavailable) as e:
+        # Gemini free-tier quota still exhausted after internal retries.
+        # 503 (not 500) so the frontend can show "try again shortly" instead
+        # of a generic crash message.
+        logger.error("[Ingest] Gemini quota exhausted for %s: %s", file.filename, e)
+        raise HTTPException(
+            503,
+            "The embedding service is temporarily rate-limited (free tier quota). "
+            "Please wait about a minute and try uploading again.",
+        )
 
     emb_iter = iter(child_embeddings)
     records = []
